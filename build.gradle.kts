@@ -11,4 +11,5 @@ repositories {
 
 dependencies {
     implementation(kotlin("stdlib"))
+    implementation("org.eclipse.jgit:org.eclipse.jgit-parent:5.5.1.201910021850-r")
 }
