@@ -15,6 +15,10 @@ class Feature(
     override fun toString() = id
 }
 
+typealias FilePathPredicate = (String) -> Boolean
+sealed class Feature2(val id: String)
+class FilePathFeature(id: String, val predicate: FilePathPredicate) : Feature2(id)
+
 data class Commit(val hash: String, val date: OffsetDateTime)
 
 data class Location(val file: File, val line: Int? = null) {
