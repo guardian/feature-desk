@@ -8,12 +8,13 @@ import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.treewalk.TreeWalk
 import java.io.BufferedReader
 import java.io.File
-import java.time.OffsetDateTime
-import java.time.ZoneId
-import java.time.ZoneOffset
+import java.time.*
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.*
+import java.util.concurrent.TimeUnit
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
 
 
 val classDefinitionRegex = Regex("^\\s*operator fun invoke")
@@ -26,6 +27,7 @@ val dateTimeFormatter: DateTimeFormatter =
 /**
  * TODO
  */
+@ExperimentalTime
 fun main(args: Array<out String>) {
     val gitDir = try {
         args[0]
@@ -69,6 +71,11 @@ fun main(args: Array<out String>) {
     var totalObjects = 0
     val uniqueObjectIds = mutableSetOf<String>()
 
+    var treeHits = 0
+    var treeCalcs = 0
+    var blobHits = 0
+    var blobCalcs = 0
+
     val memoFeatureCounts = mutableMapOf<ObjectId, IntArray>()
 
     fun IntArray.zipSum(other: IntArray): IntArray {
@@ -78,18 +85,27 @@ fun main(args: Array<out String>) {
     }
 
     fun countFeaturesInBlob(pathString: String, blobId: ObjectId, objectReader: ObjectReader): IntArray {
-        return memoFeatureCounts.getOrElse(blobId) {
-            // objectReader.open(blobId).openStream().bufferedReader()
-            return features2.map { feature ->
+        return if (blobId in memoFeatureCounts) {
+            blobHits += 1
+            memoFeatureCounts[blobId]!!
+        } else {
+            blobCalcs += 1
+            val featureCounts = features2.map { feature ->
                 when (feature) {
                     is FilePathFeature -> if (feature.predicate(pathString)) 1 else 0
                 }
             }.toIntArray()
+            memoFeatureCounts[blobId] = featureCounts
+            featureCounts
         }
     }
 
     fun countFeaturesInTree(treeId: ObjectId): IntArray {
-        return memoFeatureCounts.getOrElse(treeId) {
+        return if (treeId in memoFeatureCounts) {
+            treeHits += 1
+            memoFeatureCounts[treeId]!!
+        } else {
+            treeCalcs += 1
             var totalCounts = IntArray(features2.size)
             TreeWalk(repo).apply {
                 isRecursive = false
@@ -103,22 +119,40 @@ fun main(args: Array<out String>) {
                     totalCounts = totalCounts.zipSum(itemCounts)
                 }
             }
-            return totalCounts
+            memoFeatureCounts[treeId] = totalCounts
+            totalCounts
         }
     }
 
     val commitFeatureCounts = mutableMapOf<RevCommit, IntArray>()
 
-    revWalk.iterator().forEach { commit ->
-        commitFeatureCounts[commit] = countFeaturesInTree(commit.tree)
+    val time = measureTime {
+        File("output.csv").bufferedWriter().use { output ->
+            output.appendln("commit, datetime, ${features2.joinToString(", ") { it.id }}")
+            revWalk.iterator().forEach { commit ->
+                val dateTime = commit.authorIdent.run {
+                    ZonedDateTime.ofInstant(`when`.toInstant(), timeZone.toZoneId())
+                }
+                output.appendln(
+                    "${commit.id.name}, ${dateTime.format(dateTimeFormatter)}, ${
+                        countFeaturesInTree(commit.tree).joinToString(
+                            ", "
+                        )
+                    }"
+                )
+                //commitFeatureCounts[commit] = countFeaturesInTree(commit.tree)
+            }
+        }
     }
 
-    commitFeatureCounts.forEach { (revCommit, counts) ->
-        println("${revCommit.id}, ${counts.joinToString(", ")}")
-    }
+    //commitFeatureCounts.forEach { (revCommit, counts) ->
+    //    println("${revCommit.id}, ${counts.joinToString(", ")}")
+    //}
 
-    println("Total objects: $totalObjects")
-    println("Unique objects: ${uniqueObjectIds.size}")
+    println("Total time: $time")
+    println("Memoized objects: ${memoFeatureCounts.size}")
+    println("Tree hits/calcs: $treeHits/$treeCalcs")
+    println("Blob hits/calcs: $blobHits/$blobCalcs")
 
 
     /*
