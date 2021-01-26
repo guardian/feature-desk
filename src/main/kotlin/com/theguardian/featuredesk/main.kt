@@ -16,7 +16,7 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 
 
-val classDefinitionRegex = Regex("^\\s*operator fun invoke")
+val operatorFunInvokeRegex = Regex("^\\s*operator fun invoke")
 
 val dateTimeFormatter: DateTimeFormatter =
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
@@ -33,9 +33,14 @@ fun main(args: Array<out String>) {
     } catch (_: ArrayIndexOutOfBoundsException) {
         "."
     }
-    val features = listOf<Feature>(
+    val features = listOf(
         FilePathFeature("java_files") { it.endsWith(".java") },
-        FilePathFeature("kt_files") { it.endsWith(".kt") }
+        FilePathFeature("kt_files") { it.endsWith(".kt") },
+        LineFeature(
+            "synthetics",
+            fileFilter = { it.endsWith(".kt") },
+            linePredicate = { it.startsWith("import kotlinx.android.synthetic.") }
+        )
     )
 
     val repo = FileRepository(gitDir)
@@ -70,6 +75,13 @@ fun main(args: Array<out String>) {
             val featureCounts = features.map { feature ->
                 when (feature) {
                     is FilePathFeature -> if (feature.predicate(pathString)) 1 else 0
+                    is LineFeature -> if (feature.fileFilter(pathString)) {
+                        objectReader.open(blobId).openStream().bufferedReader().useLines { lines ->
+                            lines.count(feature.linePredicate)
+                        }
+                    } else {
+                        0
+                    }
                 }
             }.toIntArray()
             memoFeatureCounts[blobId] = featureCounts
