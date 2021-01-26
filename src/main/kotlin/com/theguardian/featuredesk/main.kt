@@ -113,10 +113,13 @@ fun main(args: Array<out String>) {
         }
     }
 
+    var commits = 0
+
     val time = measureTime {
         File("output.csv").bufferedWriter().use { output ->
             output.appendln("commit, datetime, ${features.joinToString(", ") { it.id }}")
             revWalk.iterator().forEach { commit ->
+                commits += 1
                 val dateTime = commit.authorIdent.run {
                     ZonedDateTime.ofInstant(`when`.toInstant(), timeZone.toZoneId())
                 }
@@ -131,6 +134,7 @@ fun main(args: Array<out String>) {
         }
     }
 
+    println("Total commits: $commits")
     println("Total time: $time")
     println("Memoized objects: ${memoFeatureCounts.size}")
     println("Tree hits/calcs: $treeHits/$treeCalcs")
